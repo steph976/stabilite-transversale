@@ -1,84 +1,151 @@
 /* === Opale template manager =============================================== */
 var tplMgr = {
-	fRootPath : "ide:root",
+	fFraPath : "ide:tplFra",
+	fCoPath : "ide:tplCo",
 	fCbkPath : "des:.cbkClosed",
 	fMediaPath : "des:object.resVideo|object.resAudio",
 	fWaiMnuPath : "ide:accessibility",
 	fWaiBtnPath : "des:.waiBtn",
-	fResumeBtnPath : "ide:tools/des:.module/des:a",
-	fSaveBtnPath : "ide:tools/des:.tools/des:a",
+	fResumeBtnPath : "ide:tplLft/des:.resumeBtn",
+	fSaveBtnPath : "ide:tplLft/des:.saveBtn",
 	fRefLnkPath : "des:.refOutlineEntry/chi:a",
-	fZenMode : 0, // 0 = off by default, memoized, 1 = on by default, memoized, 2 = always off, 3 = always on
-	fZenPath : "bod:.default/ide:navigation",
-	fZenListeners: [],
+	fScreenTouch : false,
+	fScreenSmall : false,
 	fNoAjax : false,
-
-	fStrings : ["Agrandir","Cacher des éléments de l\'interface pour agrandir le contenu",
-	/*02*/      "Restaurer","Restaurer l\'interface par défaut.",
-	/*04*/      "Cacher le contenu de \'%s\'","Afficher le contenu de \'%s\'",
-	/*06*/      "Le chargement dynamique de ressources est désactivé.\n\nLes restrictions sécuritaires de votre navigateur interdisent l\'utilisation de certaines fonctionnalités telles que la recherche ou l\'exploration du menu.",""],
+	
+	fStrings : ["Le chargement dynamique de ressources est désactivé.\n\nLes restrictions sécuritaires de votre navigateur interdisent l\'utilisation de certaines fonctionnalités telles que la recherche ou l\'exploration du menu."],
 
 /* === Public API =========================================================== */
 	/** init function - must be called at the end of page body */
-	init : function(){
+	init : function(pFraPath, pCoPath){
 		try {
-			this.fRoot = scPaLib.findNode(this.fRootPath);
-			this.fPageCurrent = scServices.scLoad.getUrlFromRoot(scCoLib.hrefBase());
-			this.fStore = new LocalStore();
-
-			// Set tooltip callback functions.
-		if ("scTooltipMgr" in window) {
-				scTooltipMgr.addShowListener(this.sTtShow);
-				scTooltipMgr.addHideListener(this.sTtHide);
-		}
-
-		// Set SubWin callback functions.
-		if ("scDynUiMgr" in window) {
-			scDynUiMgr.subWindow.addOnLoadListener(this.sSubWinOpen);
-			scDynUiMgr.subWindow.addCloseListener(this.sSubWinClose);
-			scDynUiMgr.collBlk.addOpenListener(this.sCollBlkOpen);
-			scDynUiMgr.collBlk.addCloseListener(this.sCollBlkClose);
-		}
-
-		// Close collapsable blocks that are closed by default.
+			if (typeof pFraPath != "undefined") this.fFraPath = pFraPath;
+			if (typeof pCoPath != "undefined") this.fCoPath = pCoPath;
+			
+			// Init template-wide flags & handles
+			this.fScreenTouch = "ontouchstart" in window && ((/iphone|ipad/gi).test(navigator.appVersion) || (/android/gi).test(navigator.appVersion));
+			this.fScreenSmall = Number(screen.width) <= 1024;
+			this.fPortrait = window.innerHeight > window.innerWidth;
+			this.fCo = scPaLib.findNode(this.fCoPath);
+			if (!this.fCo) throw "Page initialisation error : cannot find main content holder.";
+			// Add classes to frame if needed
+			var vFra = scPaLib.findNode(this.fFraPath);
+			if (vFra && (this.fScreenTouch || this.fScreenSmall)) vFra.className = "tplFra_small" + (this.fScreenTouch ? " tplFra_touch" : "");
+			// Close collapsable blocks that are closed by default.
 			var vCbks = scPaLib.findNodes(this.fCbkPath);
 			for (var i in vCbks) {
 				var vTgl = scPaLib.findNode("des:a", vCbks[i]);
 				if (vTgl) vTgl.onclick();
 			}
-
-			// Add touch specific event handling
-			if ("ontouchstart" in window){
-				document.addEventListener("touchstart", this.sTouchHandler, true);
-				document.addEventListener("touchmove", this.sTouchHandler, true);
-				document.addEventListener("touchend", this.sTouchHandler, true);
-				document.addEventListener("touchcancel", this.sTouchHandler, true);
-				document.addEventListener("click", this.sTouchHandler, true);
-				if ("scImgMgr" in window) scImgMgr.registerListener("onAnimationOpen", this.sTouchGalOpen);
-				if ("scDragMgr" in window) {
-					scDragMgr.addStartListener(function(){
-						tplMgr.fDisableTouchEvents = true;
-					});
-					scDragMgr.addStopListener(function(){
-						tplMgr.fDisableTouchEvents = false;
-					});
+			// Set touch-screen specific behaviour
+			if (this.fScreenTouch){// Load the iScroll lib...
+				var vAjax = new XMLHttpRequest();
+				vAjax.open('GET', scServices.scLoad.resolveDestUri("/lib-md/w_tplMgr/iscroll.js"), false);   
+				vAjax.send(null);
+				if (vAjax.responseText){
+					var vScript = document.createElement( "script" );
+					vScript.language = "javascript";
+					vScript.type = "text/javascript";
+					vScript.text = vAjax.responseText;
+					document.getElementsByTagName("head")[0].appendChild(vScript);
+				}
+				if (!navigator.mimeTypes["application/x-shockwave-flash"]){
+					// Transform possible compatible audio and video players into HTML5 players.
+					var vMedias = scPaLib.findNodes(this.fMediaPath,this.fCo);
+					for (var i = 0; i< vMedias.length; i++){
+						var vMedia = vMedias[i];
+						var vParam = vMedia.firstChild;
+						var vType = "video";
+						var vUri = null;
+						while (vParam) { // Look for param giving media uri
+							if (vParam.name && (vParam.name=="FlashVars" ||vParam.name=="src")){
+								vUri = vParam.value;
+								break;
+							}
+							vParam = vParam.nextSibling;
+						}
+						if (vUri){
+							if (vUri.indexOf("mp3=")==0) {
+								vType = "audio";
+								vUri = vUri.substring(4);
+							} else if (vUri.indexOf("flv=")==0) {
+								vUri = vUri.substring(7);
+							}
+							if (vUri.indexOf("&")>0) vUri = vUri.substring(0,vUri.indexOf("&"));
+							vMedia.parentNode.innerHTML='<'+vType+' controls="true" src="'+vUri+'" width="'+vMedia.width+'" height="'+vMedia.height+'"/>';
+						}
+					}
 				}
 			}
-
-			// Add zen button
-			var vZenBtn = this.addZenButton(scPaLib.findNode(this.fZenPath));
-			var vZenState = this.fStore.get("templateZen");
-			if (vZenBtn) {
-				if (this.fZenMode == 3 || (this.fZenMode != 2 && vZenState=="true") || (this.fZenMode == 1 && !vZenState)) vZenBtn.click();
-			}
-
+			if (this.fScreenTouch && "ScSiRuleResize" in window) new ScSiRuleResize(this.fCoPath,function(){tplMgr.fCo.fScroller.refresh()});
+			if (this.fScreenTouch && "scCodeMgr" in window) scCodeMgr.setEnabled(false);
+			this.fPageCurrent = scServices.scLoad.getUrlFromRoot(scCoLib.hrefBase());
+			this.fStore = new LocalStore();
 			scOnLoads[scOnLoads.length] = this;
 		} catch(e) {
-			alert("tplMgr init failed: "+e);
+			alert("L'initialisation de la page a échouée : "+e);
 		}
 	},
 	/** scCoLib OnLoad  */
 	onLoad: function() {
+		// Set touch-screen specific behaviour
+		if (this.fScreenTouch && "iScroll" in window){
+			// Add scrolling to content.
+			this.fCo.fScroller = new iScroll(this.fCo,{
+				vScrollbar:true,
+				fixedScrollbar:true,
+				bounce:false,
+				onBeforeScrollStart: function (e) {
+					var target = e.target;
+					while (target.nodeType != 1) target = target.parentNode;
+					if (target.tagName != 'SELECT' && target.tagName != 'INPUT' && target.tagName != 'TEXTAREA') e.preventDefault();
+				},
+				useTransform:(scPaLib.findNode("des:.mediaWeb",this.fCo)?false:true)});
+			// deactivate scImgMgr focusing.
+			if ("scImgMgr" in window) scImgMgr.setFocus(false);
+			// Make refOutlineEntry links iScroll comptible.
+			var vRefLnks = scPaLib.findNodes(this.fRefLnkPath,this.fCo);
+			for (var i = 0; i < vRefLnks.length; i++){
+				var vRefLnk =  vRefLnks[i];
+				vRefLnk.onclick = function(){
+					try{
+						var vId = this.hash.replace("#","");
+						tplMgr.fCo.fScroller.scrollToElement(sc$(vId),500);
+					}catch(e){alert(e);}
+					return false;
+				}
+			}
+			// Add touch specific event handling
+			document.addEventListener("touchstart", this.sTouchHandler, true);
+			document.addEventListener("touchmove", this.sTouchHandler, true);
+			document.addEventListener("touchend", this.sTouchHandler, true);
+			document.addEventListener("touchcancel", this.sTouchHandler, true);
+			document.addEventListener("click", this.sTouchHandler, true);
+			if ("scImgMgr" in window) scImgMgr.registerListener("onAnimationOpen", this.sTouchGalOpen);
+			if ("scDragMgr" in window) {
+				scDragMgr.addStartListener(function(){
+					tplMgr.fDisableTouchEvents = true;
+				});
+				scDragMgr.addStopListener(function(){
+					tplMgr.fDisableTouchEvents = false;
+				});
+			}
+		}
+		// Set tooltip callback functions.
+		if ("scTooltipMgr" in window) {
+			if (this.fScreenTouch){
+				scTooltipMgr.xGetEltL = this.sTtGetEltL;
+				scTooltipMgr.xGetEltT = this.sTtGetEltT;
+			} else {
+				scTooltipMgr.addShowListener(this.sTtShow);
+				scTooltipMgr.addHideListener(this.sTtHide);
+			}
+		}
+		// Set SubWin callback functions.
+		if ("scDynUiMgr" in window && !this.fScreenTouch) {
+			scDynUiMgr.subWindow.addOnLoadListener(this.sSwLoad);
+			scDynUiMgr.subWindow.addCloseListener(this.sSwClose);
+		}
 		// Set save & resume button onclicks.
 		var vResumeBtns = scPaLib.findNodes(this.fResumeBtnPath);
 		for (var i in vResumeBtns) {
@@ -93,43 +160,42 @@ var tplMgr = {
 				tplMgr.fStore.set("courseUrl", document.location.href);
 			}
 		}
-		// Plan outline
-		var vRetUrl = this.fStore.get("courseUrl");
-		var vMnuItems = scPaLib.findNodes("ide:content/des:ul.plan/des:a");
-		if (vRetUrl && vMnuItems){
-			var vPage = vRetUrl.substring(vRetUrl.lastIndexOf("/")+1);
-			for(var i = 0; i < vMnuItems.length; i++) {
-				var vMnuItem = vMnuItems[i];
-				if(vMnuItem.href.substring(vMnuItem.href.lastIndexOf("/")+1) == vPage){
-					vMnuItem.className = vMnuItem.className + " sel_yes";
-					break;
-				}
+		
+		// Accessibility menu focus.
+		var vWaiMnu = scPaLib.findNode(this.fWaiMnuPath);
+		if (vWaiMnu){
+			vWaiMnu.fClass = vWaiMnu.className;
+			var vWaiBtns = scPaLib.findNodes(this.fWaiBtnPath,vWaiMnu);
+			for (var i in vWaiBtns) {
+				vWaiBtns[i].onfocus = function(){vWaiMnu.className = vWaiMnu.fClass + " waiFocus"}
+				vWaiBtns[i].onblur = function(){vWaiMnu.className = vWaiMnu.fClass}
 			}
 		}
 	},
 	loadSortKey : "AZ",
-	addZenButton : function(pParent){
-		if (pParent){
-			var vZenBtn = this.addBtn(pParent, "btnZen", this.fStrings[0], this.fStrings[1]);
-			vZenBtn.onclick = this.sToggleZen;
-			return vZenBtn;
+	/** Load next image if gallery open or page if exists */
+	next: function() {
+		if ("scImgMgr" in window && scImgMgr.fCurrItem && scImgMgr.fCurrItem.fName == "gal"){
+			scImgMgr.xNxtSs(scImgMgr.fCurrItem);
+		} else {
+			var vBtn = scPaLib.findNode("des:a.btnNxt");
+			if(vBtn) {
+				if (scServices.scPreload) scServices.scPreload.goTo(vBtn.href);
+				else document.location = vBtn.href;
+			}
 		}
 	},
-	addZenListener: function(pFunc) {
-		this.fZenListeners.push(pFunc);
-	},
-	/** Load page in search */
-	loadPage : function(pUrl, pDirect){
-		if (pUrl && pUrl.length>0) window.location.href = scServices.scLoad.getRootUrl() + "/" + pUrl;
-	},
-	/** scrollTo in search */
-	scrollTo : function(pId){
-		this.loadPage(this.fPageCurrent +"#" + pId, true);
-	},
-	makeVisible : function(pNode){
-		// Ouvre bloc collapsable contenant pNode
-		var vCollBlk = scPaLib.findNode("anc:.collBlk_closed",pNode);
-		if(vCollBlk) vCollBlk.fTitle.onclick();
+	/** Load previous image if gallery open or page if exists */
+	previous: function() {
+		if ("scImgMgr" in window && scImgMgr.fCurrItem && scImgMgr.fCurrItem.fName == "gal"){
+			scImgMgr.xPrvSs(scImgMgr.fCurrItem);
+		} else {
+			var vBtn = scPaLib.findNode("des:a.btnPrv");
+			if(vBtn) {
+				if (scServices.scPreload) scServices.scPreload.goTo(vBtn.href);
+				else document.location = vBtn.href;
+			}
+		}
 	},
 	xMediaFallback: function(pMedia) {
 		while (pMedia.firstChild) {
@@ -141,51 +207,65 @@ var tplMgr = {
 		}
 		pMedia.parentNode.removeChild(pMedia);
 	},
+	/** Load page in search */
+	loadPage : function(pUrl, pDirect){
+		if (pUrl && pUrl.length>0) {
+			if (scServices.scPreload && !pDirect) scServices.scPreload.goTo(scServices.scLoad.getRootUrl() + "/" + pUrl);
+			else window.location.href = scServices.scLoad.getRootUrl() + "/" + pUrl;
+		}
+	},
+	/** scrollTo in search */
+	scrollTo : function(pId){
+		this.loadPage(this.fPageCurrent +"#" + pId, true);
+	},
 	/** setNoAjax */
 	isNoAjax : function(){
 		return this.fNoAjax;
 	},
 	/** setNoAjax */
 	setNoAjax : function(){
-		if (!this.fNoAjaxWarn) alert(this.fStrings[6]);
+		if (!this.fNoAjaxWarn) alert(this.fStrings[0]);
 		this.fNoAjax = true;
 		this.fNoAjaxWarn = true;
 	},
-	/** Load next image if gallery open or page if exists */
-	next: function() {
-		if ("scImgMgr" in window && scImgMgr.fCurrItem && scImgMgr.fCurrItem.fName == "gal"){
-			scImgMgr.xNxtSs(scImgMgr.fCurrItem);
-		} else {
-			var vBtn = scPaLib.findNode("ide:navigation/des:a.next");
-			if(vBtn) vBtn.click();
-		}
-	},
-	/** Load previous image if gallery open or page if exists */
-	previous: function() {
-		if ("scImgMgr" in window && scImgMgr.fCurrItem && scImgMgr.fCurrItem.fName == "gal"){
-			scImgMgr.xPrvSs(scImgMgr.fCurrItem);
-		} else {
-			var vBtn = scPaLib.findNode("ide:navigation/des:a.prev");
-			if(vBtn) vBtn.click();
-		}
-	},
 /* === Utilities ============================================================ */
-	/** tplMgr.addBtn : Add a HTML button to a parent node. */
-	addBtn : function(pParent, pClassName, pCapt, pTitle, pNxtSib) {
-		var vBtn = scDynUiMgr.addElement("a", pParent, pClassName, pNxtSib);
+	/** tplMgr.xAddBtn : Add a HTML button to a parent node. */
+	xAddBtn : function(pParent, pClassName, pCapt, pTitle, pNxtSib) {
+		var vBtn = pParent.ownerDocument.createElement("a");
+		vBtn.className = pClassName;
+		vBtn.fName = pClassName;
 		vBtn.href = "#";
 		vBtn.target = "_self";
-		vBtn.setAttribute("role", "button");
-		//vBtn.setAttribute("tabindex", "0");
 		if (pTitle) vBtn.setAttribute("title", pTitle);
-		if (pCapt) vBtn.innerHTML = "<span>" + pCapt + "</span>"
-		vBtn.onkeydown=function(pEvent){scDynUiMgr.handleBtnKeyDwn(pEvent);}
-		vBtn.onkeyup=function(pEvent){scDynUiMgr.handleBtnKeyUp(pEvent);}
+		if (pCapt) vBtn.innerHTML = '<span class="capt">' + pCapt + '</span>';
+		if (pNxtSib) pParent.insertBefore(vBtn,pNxtSib);
+		else pParent.appendChild(vBtn);
 		return vBtn;
 	},
 
-	/** tplMgr.switchClass - replace a class name. */
-	switchClass : function(pNode, pClassOld, pClassNew, pAddIfAbsent, pMatchExact) {
+	/** tplMgr.xAddElt : Add an HTML element to a parent node. */
+	xAddElt : function(pName, pParent, pClassName, pNoDisplay, pHidden, pNxtSib){
+		var vElt;
+		if(scCoLib.isIE && pName.toLowerCase() == "iframe") {
+			//BUG IE : impossible de masquer les bordures si on ajoute l'iframe via l'API DOM.
+			var vFrmHolder = pParent.ownerDocument.createElement("div");
+			if (pNxtSib) pParent.insertBefore(vFrmHolder,pNxtSib);
+			else pParent.appendChild(vFrmHolder);
+			vFrmHolder.innerHTML = "<iframe scrolling='no' frameborder='0'></iframe>";
+			vElt = vFrmHolder.firstChild;
+		} else {
+			vElt = pParent.ownerDocument.createElement(pName);
+			if (pNxtSib) pParent.insertBefore(vElt,pNxtSib);
+			else pParent.appendChild(vElt);
+		}
+		if (pClassName) vElt.className = pClassName;
+		if (pNoDisplay) vElt.style.display = "none";
+		if (pHidden) vElt.style.visibility = "hidden";
+		return vElt;
+	},
+
+	/** tplMgr.xSwitchClass - replace a class name. */
+	xSwitchClass : function(pNode, pClassOld, pClassNew, pAddIfAbsent, pMatchExact) {
 		var vAddIfAbsent = typeof pAddIfAbsent == "undefined" ? false : pAddIfAbsent;
 		var vMatchExact = typeof pMatchExact == "undefined" ? true : pMatchExact;
 		var vClassName = pNode.className;
@@ -214,7 +294,7 @@ var tplMgr = {
 		return vClassFound;
 	},
 /* === Event Handlers & lib override functions ============================== */
-	/** sTouchHandler */
+	/** Touch event Handler */
 	sTouchHandler: function(pEvt) {
 		if (tplMgr.fDisableTouchEvents) return;
 		switch(pEvt.type) {
@@ -228,16 +308,17 @@ var tplMgr = {
 				}
 				break;
 			case "touchmove":
+				pEvt.preventDefault()
 				if(pEvt.touches.length == 1){
 					tplMgr.fSwipeEnd = {x:pEvt.touches[0].pageX,y:pEvt.touches[0].pageY};
 				}
 				break;
 			case "touchend":
-				try{ //Swipe left & right to change page (delta Y < 30% & delta X > 200px)
+				try{ //Swipe left & right to change page (delta Y < 30% & delta X > 100px)
 					var vDeltaX = tplMgr.fSwipeStart.x - tplMgr.fSwipeEnd.x;
 					if (Math.abs((tplMgr.fSwipeStart.y - tplMgr.fSwipeEnd.y)/vDeltaX) < 0.3){ 
-						if (vDeltaX > 200) tplMgr.next();
-						else if(vDeltaX <- 200) tplMgr.previous();
+						if (vDeltaX > 100) tplMgr.next();
+						else if(vDeltaX <- 100) tplMgr.previous();
 					}
 					tplMgr.fSwipeStart = {x:null,y:null};
 					tplMgr.fSwipeEnd = tplMgr.fSwipeStart;
@@ -249,46 +330,58 @@ var tplMgr = {
 		if (!pGal || !pGal.fFra || typeof pGal.fFra.fTouchScreen != "undefined") return;
 		pGal.fFra.className = pGal.fFra.className + " " + pGal.fFra.className + "_touch";
 	},
-	/** sToggleZen */
-	sToggleZen : function(pEvent){
-		this.fFullScreen = !this.fFullScreen;
-		this.innerHTML = '<span>' + tplMgr.fStrings[(this.fFullScreen ? 2 : 0)] + '</span>';
-		this.title = tplMgr.fStrings[(this.fFullScreen ? 3 : 1)];
-		tplMgr.fStore.set("templateZen", this.fFullScreen);
-		tplMgr.switchClass(tplMgr.fRoot, "zen_"+!this.fFullScreen, "zen_"+this.fFullScreen, true);
-		for (var i=0; i<tplMgr.fZenListeners.length; i++) {
-			try{tplMgr.fZenListeners[i]();} catch(e){}
-		}
-		return false;
-	},
 	/** Tooltip lib show callback : this = function */
 	sTtShow: function(pNode) {
-		if (!pNode.fOpt.FOCUS && !pNode.onblur) pNode.onblur = function(){scTooltipMgr.hideTooltip(true);};
+		var vClsBtn = scPaLib.findNode("des:a.tooltip_x", scTooltipMgr.fCurrTt);
+		if (vClsBtn) window.setTimeout(function(){vClsBtn.focus();}, pNode.fOpt.DELAY + 10);
+		else if (!pNode.onblur) pNode.onblur = function(){scTooltipMgr.hideTooltip(true);};
 	},
 	/** Tooltip lib hide callback : this = function */
 	sTtHide: function(pNode) {
 		if (pNode) pNode.focus();
 	},
+	/** Tooltip lib xGetEltL - added iScroll compatibility : this = scTooltipMgr */
+	sTtGetEltL: function(pElt) {
+		var vX;
+		if (pElt.style.pixelLeft) {
+			vX = this.xInt(pElt.style.pixelLeft);
+		} else {
+			vX = this.xInt(pElt.offsetLeft);
+			if (pElt.offsetParent.tagName.toLowerCase() != 'body' && pElt.offsetParent.tagName.toLowerCase() != 'html') {
+				vX -= pElt.offsetParent.scrollLeft;
+				if(pElt.offsetParent.fScroller) vX += pElt.offsetParent.fScroller.x
+				vX += this.xGetEltL(pElt.offsetParent);
+			}
+		}
+		return vX;
+	},
+	/** Tooltip lib xGetEltT - added iScroll compatibility : this = scTooltipMgr */
+	sTtGetEltT: function(pElt) {
+		var vY;
+		if (pElt.style.pixelTop) {
+			vY = this.xInt(pElt.style.pixelTop);
+		} else {
+			vY = this.xInt(pElt.offsetTop);
+			if (pElt.offsetParent.tagName.toLowerCase() != 'body' && pElt.offsetParent.tagName.toLowerCase() != 'html') {
+				vY -= pElt.offsetParent.scrollTop;
+				if(pElt.offsetParent.fScroller) vY += pElt.offsetParent.fScroller.y
+				vY += this.xGetEltT(pElt.offsetParent);
+			}
+		}
+		return vY;
+	},
 	/** SubWin lib load callback : this = function */
-	sSubWinOpen: function(pFra) {
+	sSwLoad: function(pFra) {
 		var vCo = scPaLib.findNode("ide:content", pFra.contentDocument),
 			vCloseBtn = scPaLib.findNode("des:.subWindow_x",pFra.parentNode.parentNode);
 		if (vCo) vCo.focus();
-		var vFocusOnCloseBtn = scPaLib.findNode("des:.focusOnCloseBtn",pFra.parentNode)?scPaLib.findNode("des:.focusOnCloseBtn",pFra.parentNode):tplMgr.addBtn(pFra.parentNode,"focusOnCloseBtn",">");
+		var vFocusOnCloseBtn = scPaLib.findNode("des:.focusOnCloseBtn",pFra.parentNode)?scPaLib.findNode("des:.focusOnCloseBtn",pFra.parentNode):tplMgr.xAddBtn(pFra.parentNode,"focusOnCloseBtn",">");
 		vFocusOnCloseBtn.onfocus=function(){vCloseBtn.focus();}
 	},
 	/** SubWin lib close callback : this = function */
-	sSubWinClose: function(pId) {
+	sSwClose: function(pId) {
 		var vSubWin = scDynUiMgr.subWindow.fSubWins[pId];
 		if (vSubWin && vSubWin.fAnc) vSubWin.fAnc.focus();
-	},
-	/** Callback function. */
-	sCollBlkOpen: function(pCo, pTitle) {
-		if (pTitle) pTitle.title = tplMgr.fStrings[4].replace("%s", (pTitle.innerText ? pTitle.innerText: pTitle.textContent));
-	},
-	/** Callback function. */
-	sCollBlkClose: function(pCo, pTitle) {
-		if (pTitle) pTitle.title = tplMgr.fStrings[5].replace("%s", (pTitle.innerText ? pTitle.innerText: pTitle.textContent));
 	}
 }
 
@@ -316,166 +409,3 @@ function LocalStore(pId){
 	this.xKey = function(pKey){return this.fId + this.xEsc(pKey)};
 	this.xEsc = function(pStr){return "LS" + pStr.replace(/ /g, "_")};
 }
-
-/** ### ScSiRuleAutoMarginW ######### */
-function ScSiRuleAutoMarginW(pIdMarginWNode, pPathContainer, pIsDynSize, pMinWidth, pMaxMargin) {
-	this.fIsDynSize = pIsDynSize;
-	this.fId = pIdMarginWNode;
-	this.fPath = pPathContainer;
-	this.fMinWidth = pMinWidth;
-	this.fMaxMargin = pMaxMargin;
-	scOnLoads[scOnLoads.length] = this;
-}
-ScSiRuleAutoMarginW.prototype.onResizedAnc = function(pOwnerNode, pEvent) {
-	if( ! this.fIsDynSize) {
-		pEvent.stopBranch = true;
-		return;
-	}
-	if(pEvent.resizedNode == pOwnerNode) return;
-	if(pEvent.phase==1) this.xReset();
-	else this.xRedraw();
-}
-ScSiRuleAutoMarginW.prototype.onResizedDes = function(pOwnerNode, pEvent) {
-	if(pEvent.phase==1) this.xReset();
-	else this.xRedraw();
-}
-ScSiRuleAutoMarginW.prototype.xReset = function() {
-	this.fNode.style.marginLeft = "0px";
-	this.fNode.style.marginRight = "0px";
-}
-ScSiRuleAutoMarginW.prototype.xRedraw = function() {
-	var vH = this.fContainer.clientHeight;
-	if(isNaN(vH) || vH <= 0) return;
-	var vContentH = scSiLib.getContentHeight(this.fContainer);
-	if(isNaN(vContentH) || vContentH <= 0) return;
-	if(vContentH < vH) {
-		var vW = this.fContainer.clientWidth;
-		if(vW <= this.fMinWidth) return;
-		var vMargin = Math.min( this.fMaxMargin * (1 - vContentH / vH), (vW - this.fMinWidth)/2) + "px";
-		this.fNode.style.marginLeft = vMargin;
-		this.fNode.style.marginRight = vMargin;
-	}
-}
-ScSiRuleAutoMarginW.prototype.onLoad = function() {
-	this.fNode = sc$(this.fId);
-	if( ! this.fNode) return;
-	this.fContainer = scPaLib.findNode(this.fPath, this.fNode);
-	if( ! this.fContainer) return;
-	scSiLib.addRule(this.fContainer, this);
-	this.xRedraw();
-}
-ScSiRuleAutoMarginW.prototype.loadSortKey = "Si2";
-ScSiRuleAutoMarginW.prototype.ruleSortKey = "2";
-
-/** ### ScSiRuleFlexH ######### */
-function ScSiRuleFlexH(pIdFlexNode, pPathContainer, pIsDynSize, pRatioFreeSpace) {
-	this.fIsDynSize = pIsDynSize;
-	this.fId = pIdFlexNode;
-	this.fPath = pPathContainer;
-	this.fRatioFreeSpace = pRatioFreeSpace;
-	scOnLoads[scOnLoads.length] = this;
-}
-ScSiRuleFlexH.prototype.onResizedAnc = ScSiRuleAutoMarginW.prototype.onResizedAnc;
-ScSiRuleFlexH.prototype.onResizedDes = ScSiRuleAutoMarginW.prototype.onResizedDes;
-ScSiRuleFlexH.prototype.xReset = function() {
-	this.fNode.style.height = null;
-}
-ScSiRuleFlexH.prototype.xRedraw = function() {
-	var vH = this.fContainer.clientHeight;
-	if(isNaN(vH) || vH <= 0) return;
-	var vContentH = scSiLib.getContentHeight(this.fContainer);
-	if(isNaN(vContentH) || vContentH <= 0) return;
-	if(vContentH < vH) this.fNode.style.height = Math.round( (vH-vContentH) * this.fRatioFreeSpace)+"px";
-}
-ScSiRuleFlexH.prototype.onLoad = function() {
-	this.fNode = sc$(this.fId);
-	if( ! this.fNode) return;
-	this.fContainer = scPaLib.findNode(this.fPath, this.fNode);
-	if( ! this.fContainer) return;
-	scSiLib.addRule(this.fContainer, this);
-	this.xRedraw();
-}
-ScSiRuleFlexH.prototype.loadSortKey = "Si3";
-ScSiRuleFlexH.prototype.ruleSortKey = "3";
-
-/** ### ScSiRuleEnsureVisible ######### */
-function ScSiRuleEnsureVisible(pPathNode, pPathContainer) {
-	this.fPathNode = pPathNode;
-	this.fPathContainer = pPathContainer;
-	this.fEnable = true;
-	scOnLoads[scOnLoads.length] = this;
-}
-ScSiRuleEnsureVisible.prototype.enable = function(pState) {
-	this.fEnable = pState;
-}
-ScSiRuleEnsureVisible.prototype.updateNode = function(pNode) {
-	this.fEnable = true;
-	this.fNode = pNode;
-	if(!this.fNode) this.fEnable = false;
-	this.fContainer = scPaLib.findNode(this.fPathContainer, this.fNode);
-	if(!this.fContainer) this.fEnable = false;
-	this.xEnsureVis();
-}
-ScSiRuleEnsureVisible.prototype.updateNodePath = function(pPathNode) {
-	this.fEnable = true;
-	if (typeof pPathNode != "undefined") this.fPathNode = pPathNode;
-	this.fNode = scPaLib.findNode(this.fPathNode);
-	if(!this.fNode) this.fEnable = false;
-	this.fContainer = scPaLib.findNode(this.fPathContainer, this.fNode);
-	if(!this.fContainer) this.fEnable = false;
-	this.xEnsureVis();
-}
-ScSiRuleEnsureVisible.prototype.onResizedAnc = function(pOwnerNode, pEvent) {
-	if(pEvent.phase==1 || pEvent.resizedNode == pOwnerNode) return;
-	this.xEnsureVis();
-}
-ScSiRuleEnsureVisible.prototype.onResizedDes = function(pOwnerNode, pEvent) {
-	if(pEvent.phase==1) return;
-	this.xEnsureVis();
-}
-ScSiRuleEnsureVisible.prototype.xEnsureVis = function() {
-	if (!this.fEnable) return;
-	var vOffsetTop = scSiLib.getOffsetTop(this.fNode, this.fContainer)+this.fContainer.scrollTop;
-	var vOffsetMiddle = vOffsetTop + this.fNode.offsetHeight/2;
-	var vMiddle = this.fContainer.clientHeight / 2;
-	this.fContainer.scrollTop = Math.min(vOffsetMiddle - vMiddle, vOffsetTop);
-}
-ScSiRuleEnsureVisible.prototype.onLoad = function() {
-	try {
-		if (this.fPathNode) this.fNode = scPaLib.findNode(this.fPathNode);
-		if(!this.fNode) this.fEnable = false;
-		this.fContainer = scPaLib.findNode(this.fPathContainer, this.fNode);
-		if(!this.fContainer) this.fEnable = false;
-		else scSiLib.addRule(this.fContainer, this);
-		this.xEnsureVis();
-	} catch(e){alert(e);}
-}
-ScSiRuleEnsureVisible.prototype.loadSortKey = "SiZ";
-ScSiRuleEnsureVisible.prototype.ruleSortKey = "Z";
-
-/** ### ScSiRuleResize ######### */
-function ScSiRuleResize( pPathContainer, pResizeFunc) {
-	this.fPathContainer = pPathContainer;
-	this.xResizeFunc = pResizeFunc;
-	scOnLoads[scOnLoads.length] = this;
-}
-ScSiRuleResize.prototype.onResizedAnc = function(pOwnerNode, pEvent) {
-	if(pEvent.phase==1 || pEvent.resizedNode == pOwnerNode) return;
-	this.xResizeFunc();
-}
-ScSiRuleResize.prototype.onResizedDes = function(pOwnerNode, pEvent) {
-	if(pEvent.phase==1) return;
-	this.xResizeFunc();
-}
-ScSiRuleResize.prototype.xResizeFunc = function() {
-}
-ScSiRuleResize.prototype.onLoad = function() {
-try {
-	this.fContainer = scPaLib.findNode(this.fPathContainer, this.fNode);
-	if( ! this.fContainer) return;
-	scSiLib.addRule(this.fContainer, this);
-	this.xResizeFunc();
-} catch(e){alert(e);}
-}
-ScSiRuleResize.prototype.loadSortKey = "SiZZ";
-ScSiRuleResize.prototype.ruleSortKey = "ZZ";

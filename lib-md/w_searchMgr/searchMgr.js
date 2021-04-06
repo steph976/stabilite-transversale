@@ -38,19 +38,16 @@
 
 /* ========== Search manager ================================================ */
 var searchMgr = {
-	fPathRoot : "ide:root",
-	fPathContent : "ide:content",
-	fPathSchParent : "ide:toolbox",
-	fPathResParent : "ide:root",
-	fPathCollBkAnc : "anc:.collapse_closed",
+	fPathRoot : "des:div",
+	fPathSchBox : "",
+	fPathResBox : "",
 	fMaxFilterDisplay : 100,
 	fOverflowMethod : "",
 	fUnifiedNav : true,
 	sFilterTgleClosed : scPaLib.compileFilter(".mnu_tgle_c"),
-	fNoIdxFilter : scPaLib.compileFilter(".noIndex|.hidden|.footnotes|.CodeMirror-linenumber|script|noscript|object"),
-
+	fNavie7 : parseFloat(scCoLib.userAgent.substring(scCoLib.userAgent.indexOf("msie")+5)) < 8,
 	fStrings : ["Annuler","Annuler la recherche",
-  /*02*/    "Lancer la recherche","Aucun résultat.",
+  /*02*/    "Rechercher dans le contenu","Aucun résultat.",
   /*04*/    "1 page trouvée","%s pages trouvées",
   /*06*/    "Précisez votre recherche...","Termes recherchés :",
   /*08*/    "Précédent","Occurrence précédente",
@@ -72,20 +69,21 @@ var searchMgr = {
 		this.fUnifiedNav = pFlag;
 	},
 
-	init: function(pOpt){
+	init: function(pPathSchBox,pPathResBox,pOpt){
 		try{
+			if (this.fNavie7) return;
 			this.fOpt = {searchType:'treeResults'};
+			if (typeof pPathSchBox != "undefined") this.fPathSchBox = pPathSchBox;
+			if (typeof pPathResBox != "undefined") this.fPathResBox = pPathResBox;
 			if (typeof pOpt != "undefined"){
 				if (typeof pOpt.searchType != "undefined") this.fOpt.searchType = pOpt.searchType;
 			}
 			this.fRoot = scPaLib.findNode(this.fPathRoot);
-			var vSchCmdParent = scPaLib.findNode(this.fPathSchParent);
-			var vSchResParent = scPaLib.findNode(this.fPathResParent);
-			if (!this.fRoot || !vSchCmdParent || !vSchResParent) throw "Cannot find root, command or result elements.";
-			this.fSearchCmds = scDynUiMgr.addElement("div",vSchCmdParent,"schCmds");
-			this.fSearchRes = scDynUiMgr.addElement("div",vSchResParent,"schResults");
-			this.fRoot.className += " schActive";
-
+			var vSchBox = scPaLib.findNode(this.fPathSchBox);
+			if (!vSchBox) return;
+			this.fSearchCmds = scDynUiMgr.addElement("div",vSchBox,"schCmds");
+			this.fSearchRes = scPaLib.findNode(this.fPathResBox);
+			
 			if (!Function.prototype.bind) {
 				Function.prototype.bind = function (oThis) {
 					if (typeof this !== "function") throw new TypeError("Function.prototype.bind - what is trying to be bound is not callable");
@@ -103,16 +101,15 @@ var searchMgr = {
 
 	onLoad: function(){
 		try{
-			tplMgr.switchClass(this.fRoot, "schDisplay_on", "schDisplay_off", true);
 			var vSearchForm = scDynUiMgr.addElement("form",this.fSearchCmds,"schForm");
 			vSearchForm.autocomplete = "off";
 			var vSearchLabel = scDynUiMgr.addElement("label",vSearchForm,"schLabel");
-			vSearchLabel.innerHTML = this.fStrings[21];
-			vSearchLabel.setAttribute("for",this.fStrings[21]);
+			vSearchLabel.innerHTML = this.fStrings[21];		
+			vSearchLabel.setAttribute("for",this.fStrings[21]);		
 			this.fSearchInput = scDynUiMgr.addElement("input",vSearchForm,"schInput");
-			this.fSearchInput.setAttribute("type", "search");
-			this.fSearchInput.setAttribute("role","search");
+			this.fSearchInput.setAttribute("type", "text");
 			this.fSearchInput.id = this.fSearchInput.name = this.fSearchInput.placeholder = this.fStrings[21];
+			this.fSearchInput.title = this.fStrings[2];
 			this.fSearchInput.onkeyup = this.sKeyUp;
 			this.fSearchLaunch = scDynUiMgr.addElement("input",vSearchForm,"schBtnLaunch");
 			this.fSearchLaunch.setAttribute("type", "submit");
@@ -120,12 +117,16 @@ var searchMgr = {
 			this.fSearchLaunch.title = this.fStrings[2];
 			this.fSearchLaunch.onclick = this.sFind;
 			this.fSearchPropose = scDynUiMgr.addElement("div",this.fSearchCmds,"schPropose schProp_no");
-			this.fSearchPropose.setAttribute("aria-live", "polite");
 			
 			var vResultFrame = scDynUiMgr.addElement("div",this.fSearchRes,"schResFrame" + (this.fUnifiedNav? " schUnifiedNav":""));
 			var vResultList = scDynUiMgr.addElement("div",vResultFrame,"schResList");
-			this.fResultScroll = scDynUiMgr.addElement("div",vResultList,"schResListSrl");
-			this.fResultScroll.setAttribute("aria-live", "polite");
+			if (tplMgr.fScreenTouch && "iScroll" in window){
+				var vScrollBox = scDynUiMgr.addElement("div",vResultList,"schResListSrl");
+				this.fResultScroll = scDynUiMgr.addElement("div",vScrollBox,"scroller");
+				this.fScroller = new iScroll(vScrollBox,{fixedScrollbar:true,bounce:false});
+			} else {
+				this.fResultScroll = scDynUiMgr.addElement("div",vResultList,"schResListSrl");
+			}
 			this.fResultTgle = this.xAddBtn(vResultFrame,"schBtnTgle schBtnTgle_cls",this.fStrings[14],this.fStrings[15]);
 			this.fResultTgle.onclick = this.sListTgle;
 			this.fSearchReset = this.xAddBtn(vResultFrame,"schBtnReset","X",this.fStrings[1]);
@@ -148,9 +149,10 @@ var searchMgr = {
 				this.fBtnNxt = this.xAddBtn(vSchPageBox,"schBtnNxt",this.fStrings[10],this.fStrings[13]);
 				this.fBtnNxt.onclick = this.sNxt;
 			}
+
 			this.getLastResults();
-			if (!this.fResult) return;
 			var vCnt=0;
+			if (!this.fResult) return;
 			for(var i = 0;i<this.fResult.length;i++) if(this.fResult[i].url == tplMgr.fPageCurrent) vCnt++;
 			if(vCnt == 0) scServices.scSearch.resetLastQuery();
 			else {
@@ -176,7 +178,7 @@ var searchMgr = {
 			var vStr = this.fSearchInput.value;
 			var vWds = scServices.scSearch.propose(this.fIdxUrl, vStr,{async:true});
 			var vShowProp = !vWds || (vWds && vWds.length==0 && vStr.length<3) || vWds && vWds.length>0;
-			tplMgr.switchClass(this.fSearchPropose,"schProp_"+(vShowProp ? "no" : "yes"), "schProp_"+(vShowProp ? "yes" : "no"), true);
+			this.xSwitchClass(this.fSearchPropose,"schProp_"+(vShowProp ? "no" : "yes"), "schProp_"+(vShowProp ? "yes" : "no"), true);
 			this.fSearchPropose.fShown = vShowProp ? true : false;
 		
 			var vProp;
@@ -197,7 +199,7 @@ var searchMgr = {
 
 	xDisable: function(){
 		tplMgr.setNoAjax();
-		tplMgr.switchClass(this.fSearchPropose,"schProp_yes", "schProp_no", true);
+		this.xSwitchClass(this.fSearchPropose,"schProp_yes", "schProp_no", true);
 		this.fSearchPropose.fShown = false;
 		this.fSearchPropose.innerHTML = "";
 		this.fSearchInput.value = "";
@@ -210,13 +212,14 @@ var searchMgr = {
 		if(!vStr) return;
 
 		this.xResetHighlight();
-		tplMgr.switchClass(this.fSearchPropose,"schProp_yes", "schProp_no", true);
+		this.xSwitchClass(this.fSearchPropose,"schProp_yes", "schProp_no", true);
 		this.fSearchPropose.fShown = false;
 		this.fSearchPropose.innerHTML = "";
 		scServices.scSearch.query({id:this.fIdxUrl,str:vStr});
 		this.declareManager();
 		this.getLastResults();
 		this.xUpdateUi();
+		if(scServices.scPreload) scServices.scPreload.parseLinks(this.fResultScroll);
 		this.xListTgle(true);
 	},
 
@@ -228,8 +231,8 @@ var searchMgr = {
 
 	declareManager: function(){
 		if(!this.fResultMgr) {
-			var vOutline = outMgr.getOutline();
-			vSrcMenu = vOutline.module;
+			var vOutline = outMgr.xGetOutline();
+			vSrcMenu = vOutline.menu;
 			vSrcMenu.url = null;
 			this.fResultMgr = this.fOpt.searchType=="listResults"?new this.ListResultManager(this.fResultScroll,vSrcMenu):new this.TreeResultManager(this.fResultScroll,vSrcMenu);
 		}
@@ -296,13 +299,13 @@ var searchMgr = {
 
 	sKeyUp: function(pEvt){
 		var vEvt = pEvt || window.event;
-		if (this.value.length>0) tplMgr.switchClass(searchMgr.fSearchCmds,"schCmds_noact", "schCmds_act", true);
-		else tplMgr.switchClass(searchMgr.fSearchCmds,"schCmds_act", "schCmds_noact", true);
+		if (this.value.length>0) searchMgr.xSwitchClass(searchMgr.fSearchCmds,"schCmds_noact", "schCmds_act", true);
+		else searchMgr.xSwitchClass(searchMgr.fSearchCmds,"schCmds_act", "schCmds_noact", true);
 		
 		if (this.value.length==0) searchMgr.xResetUi();
 		if (this.value.length>0 && vEvt.keyCode != "13") searchMgr.propose();
 		else {
-			tplMgr.switchClass(searchMgr.fSearchPropose,"schProp_yes", "schProp_no", true);
+			searchMgr.xSwitchClass(searchMgr.fSearchPropose,"schProp_yes", "schProp_no", true);
 			searchMgr.fSearchPropose.fShown = false;
 			searchMgr.fSearchPropose.innerHTML = "";
 		}
@@ -330,8 +333,8 @@ var searchMgr = {
 	sPrvHit: function(){
 		if (searchMgr.fTextHits && searchMgr.fTextHits.length>0 && searchMgr.fCurrHit>0){
 			searchMgr.xListTgle(false);
-			tplMgr.switchClass(searchMgr.fTextHits[searchMgr.fCurrHit], "schHit_current", "schHit");
-			tplMgr.switchClass(searchMgr.fTextHits[--searchMgr.fCurrHit], "schHit", "schHit_current");
+			searchMgr.xSwitchClass(searchMgr.fTextHits[searchMgr.fCurrHit], "schHit_current", "schHit");
+			searchMgr.xSwitchClass(searchMgr.fTextHits[--searchMgr.fCurrHit], "schHit", "schHit_current");
 			// Si tabBox les onglets sont ouverts
 			searchMgr.xIsTabBox();
 			tplMgr.scrollTo(searchMgr.fTextHits[searchMgr.fCurrHit].id);
@@ -344,8 +347,8 @@ var searchMgr = {
 	sNxtHit: function(){
 		if (searchMgr.fTextHits && searchMgr.fTextHits.length>0 && searchMgr.fCurrHit<searchMgr.fTextHits.length-1){
 			searchMgr.xListTgle(false);
-			if (searchMgr.fCurrHit>=0) tplMgr.switchClass(searchMgr.fTextHits[searchMgr.fCurrHit], "schHit_current", "schHit");
-			tplMgr.switchClass(searchMgr.fTextHits[++searchMgr.fCurrHit], "schHit", "schHit_current");
+			if (searchMgr.fCurrHit>=0) searchMgr.xSwitchClass(searchMgr.fTextHits[searchMgr.fCurrHit], "schHit_current", "schHit");
+			searchMgr.xSwitchClass(searchMgr.fTextHits[++searchMgr.fCurrHit], "schHit", "schHit_current");
 			// Si tabBox les onglets sont ouverts
 			searchMgr.xIsTabBox();
 			tplMgr.scrollTo(searchMgr.fTextHits[searchMgr.fCurrHit].id);
@@ -364,42 +367,43 @@ var searchMgr = {
 	xListTgle: function(pState){
 		if (typeof pState == "undefined") pState = !this.fListOpen;
 		if (pState){
-			tplMgr.switchClass(searchMgr.fRoot, "schDisplayList_off", "schDisplayList_on", true);
+			tplMgr.xSwitchClass(searchMgr.fRoot, "schDisplayList_off", "schDisplayList_on", true);
 		} else {
-			tplMgr.switchClass(searchMgr.fRoot, "schDisplayList_on", "schDisplayList_off", true);
+			tplMgr.xSwitchClass(searchMgr.fRoot, "schDisplayList_on", "schDisplayList_off", true);
 		}
 		this.fListOpen = pState;
+		window.setTimeout(function(){if (searchMgr.fScroller) searchMgr.fScroller.refresh();}, 500);
 	},
 
 	xResetUi: function(){
 		if (!this.fSearchDisplay) return;
 		this.fSearchDisplay = false;
 		searchMgr.xListTgle(false);
-		tplMgr.switchClass(this.fRoot, "schDisplay_on", "schDisplay_off", true);
-		tplMgr.switchClass(this.fRoot, "schDisplayList_on", "schDisplayist_off", true);
+		tplMgr.xSwitchClass(this.fRoot, "schDisplay_on", "schDisplay_off", true);
+		tplMgr.xSwitchClass(this.fRoot, "schDisplayList_on", "schDisplayist_off", true);
 		this.fSearchInput.value = "";
 		this.fSearchInput.className = "schInput";
 		this.fSearchLbl.innerHTML = "";
-		tplMgr.switchClass(searchMgr.fSearchPropose,"schProp_yes schProp_no", "", true);
+		searchMgr.xSwitchClass(searchMgr.fSearchPropose,"schProp_yes schProp_no", "", true);
 		this.fSearchPropose.innerHTML = "";
 		this.xResetHighlight();
 	},
 
 	xUpdateUi: function(){
-		if (this.fSearchInput.value.length>0) tplMgr.switchClass(this.fSearchCmds,"schCmds_noact", "schCmds_act", true);
-		else tplMgr.switchClass(this.fSearchCmds,"schCmds_act", "schCmds_noact", true);
+		if (this.fSearchInput.value.length>0) searchMgr.xSwitchClass(this.fSearchCmds,"schCmds_noact", "schCmds_act", true);
+		else searchMgr.xSwitchClass(this.fSearchCmds,"schCmds_act", "schCmds_noact", true);
 		if (!this.fResult) return;
 
 		this.fSearchDisplay = true;
-		tplMgr.switchClass(searchMgr.fRoot, "schDisplay_off", "schDisplay_on", true);
+		searchMgr.xSwitchClass(searchMgr.fRoot, "schDisplay_off", "schDisplay_on", true);
 		this.fResultScroll.innerHTML = "";
 
 		if (this.fResult && this.fResult.length > 0){
 			this.fResultMgr.buildResult(this.fResult);
 			this.fResultMgr.loadPage(tplMgr.fPageCurrent);
 
-			tplMgr.switchClass(searchMgr.fSearchRes, "schDisplay_", "schDisplay_"+(this.fResult.length == 1 ? "one" : "many"), true, false);
-			var vRoot = scPaLib.findNode(this.fPathContent);
+			searchMgr.xSwitchClass(searchMgr.fSearchRes, "schDisplay_", "schDisplay_"+(this.fResult.length == 1 ? "one" : "many"), true, false);
+			var vRoot = sc$("tplCo");
 			if (!vRoot) return;
 			this.xHighlight(vRoot, scServices.scSearch.getLastSearch(this.fIdxUrl));
 			searchMgr.xUpdateResUi();
@@ -408,39 +412,40 @@ var searchMgr = {
 			this.fSearchLbl.innerHTML = this.fStrings[3];
 			var vNoResult = scDynUiMgr.addElement("div",this.fResultScroll,"schNoRes");
 			vNoResult.innerHTML = this.fStrings[20];
-			tplMgr.switchClass(this.fSearchRes, "schDisplay_", "schDisplay_none", true, false);
+			this.xSwitchClass(this.fSearchRes, "schDisplay_", "schDisplay_none", true, false);
 			this.xResetHighlight();
+			if (this.fScroller) this.fScroller.refresh();
 		}
 
 	},
 
 	xUpdateResUi: function(){
 		if (!this.fUnifiedNav){
-			if (this.fResultMgr.hasPreviousPage(tplMgr.fPageCurrent)) tplMgr.switchClass(this.fBtnPrv,"schBtnAct_no", "schBtnAct_yes", true);
-			else tplMgr.switchClass(this.fBtnPrv,"schBtnAct_yes", "schBtnAct_no", true);
-			if (this.fResultMgr.hasNextPage(tplMgr.fPageCurrent)) tplMgr.switchClass(this.fBtnNxt,"schBtnAct_no", "schBtnAct_yes", true);
-			else tplMgr.switchClass(this.fBtnNxt,"schBtnAct_yes", "schBtnAct_no", true);
+			if (this.fResultMgr.hasPreviousPage(tplMgr.fPageCurrent)) this.xSwitchClass(this.fBtnPrv,"schBtnAct_no", "schBtnAct_yes", true);
+			else this.xSwitchClass(this.fBtnPrv,"schBtnAct_yes", "schBtnAct_no", true);
+			if (this.fResultMgr.hasNextPage(tplMgr.fPageCurrent)) this.xSwitchClass(this.fBtnNxt,"schBtnAct_no", "schBtnAct_yes", true);
+			else this.xSwitchClass(this.fBtnNxt,"schBtnAct_yes", "schBtnAct_no", true);
 		}
 		var vPageCount = this.fResultMgr.getPageCount();
 		if (vPageCount && vPageCount > 0) {
 			if(this.fResultMgr.getPageRank(tplMgr.fPageCurrent)) this.fSearchCnt.innerHTML = this.fResultMgr.getPageRank(tplMgr.fPageCurrent) + "/" + vPageCount;
 			this.fSearchLbl.innerHTML = (vPageCount == 1 ? this.fStrings[4] : this.fStrings[5].replace("%s",vPageCount));
-			tplMgr.switchClass(this.fSearchRes, "schDisplay_", "schDisplay_"+(vPageCount == 1 ? "one" : "many"), true, false);
+			this.xSwitchClass(this.fSearchRes, "schDisplay_", "schDisplay_"+(vPageCount == 1 ? "one" : "many"), true, false);
 		}
 		else this.fSearchLbl.innerHTML = this.fStrings[3];
 	},
 
 	xUpdateHitUi: function(){
 		if (!this.fUnifiedNav){
-			if (this.fTextHits && this.fTextHits.length>0 && this.fCurrHit>0) tplMgr.switchClass(this.fBtnPrvHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
-			else tplMgr.switchClass(this.fBtnPrvHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
-			if (this.fTextHits && this.fTextHits.length>0 && this.fCurrHit<this.fTextHits.length-1) tplMgr.switchClass(this.fBtnNxtHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
-			else tplMgr.switchClass(this.fBtnNxtHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
+			if (this.fTextHits && this.fTextHits.length>0 && this.fCurrHit>0) this.xSwitchClass(this.fBtnPrvHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
+			else this.xSwitchClass(this.fBtnPrvHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
+			if (this.fTextHits && this.fTextHits.length>0 && this.fCurrHit<this.fTextHits.length-1) this.xSwitchClass(this.fBtnNxtHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
+			else this.xSwitchClass(this.fBtnNxtHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
 		} else {
-			if ((this.fTextHits && this.fTextHits.length>0 && this.fCurrHit>0) || this.fResultMgr.hasPreviousPage(tplMgr.fPageCurrent)) tplMgr.switchClass(this.fBtnPrvHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
-			else tplMgr.switchClass(this.fBtnPrvHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
-			if ((this.fTextHits && this.fTextHits.length>0 && this.fCurrHit<this.fTextHits.length-1) || this.fResultMgr.hasNextPage(tplMgr.fPageCurrent)) tplMgr.switchClass(this.fBtnNxtHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
-			else tplMgr.switchClass(this.fBtnNxtHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
+			if ((this.fTextHits && this.fTextHits.length>0 && this.fCurrHit>0) || this.fResultMgr.hasPreviousPage(tplMgr.fPageCurrent)) this.xSwitchClass(this.fBtnPrvHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
+			else this.xSwitchClass(this.fBtnPrvHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
+			if ((this.fTextHits && this.fTextHits.length>0 && this.fCurrHit<this.fTextHits.length-1) || this.fResultMgr.hasNextPage(tplMgr.fPageCurrent)) this.xSwitchClass(this.fBtnNxtHit,"schBtnHitAct_no", "schBtnHitAct_yes", true);
+			else this.xSwitchClass(this.fBtnNxtHit,"schBtnHitAct_yes", "schBtnHitAct_no", true);
 		}
 		if (this.fTextHits.length>0 && this.fCurrHit>=0) this.fHitCnt.innerHTML = (this.fCurrHit+1) + "/" + this.fTextHits.length;
 		else this.fHitCnt.innerHTML = "";
@@ -448,10 +453,11 @@ var searchMgr = {
 
 	xHighlight: function(pRoot, pStr){
 		var vTextNodes = [];
+		var vNoIdxFilter = scPaLib.compileFilter(".noIndex|.pbTi|objBox_ti|.hidden|.bkSolResOut|.footnotes|.CodeMirror-linenumber|script|noscript|object");
 		var textNodeWalker = function (pNde){
 			while (pNde){
 				if (pNde.nodeType == 3) vTextNodes.push(pNde);
-				else if (pNde.nodeType == 1 && !scPaLib.checkNode(searchMgr.fNoIdxFilter,pNde)) textNodeWalker(pNde.firstChild);
+				else if (pNde.nodeType == 1 && !scPaLib.checkNode(vNoIdxFilter,pNde)) textNodeWalker(pNde.firstChild);
 				pNde = pNde.nextSibling;
 			}
 		}
@@ -489,12 +495,9 @@ var searchMgr = {
 				}
 			}
 			if (vHits.length>0){
-				// On ouvre les blocs collapsables contenant un schHit
-				
-				var vBkExtras = scPaLib.findNodes(this.fPathCollBkAnc,vTxtNode);
-				if(vBkExtras && vBkExtras.length>0) {
-					for (var j = 0; j<vBkExtras.length;j++) vBkExtras[j].fTitle.onclick();
-				}
+				// Ouvre bloc collapsable contenant un schHit
+				var vBkExtra = scPaLib.findNode("anc:.collBlk_closed",vTxtNode);
+				if(vBkExtra) vBkExtra.fTitle.onclick();
 				vHits.sort(function(a,b){return a.start - b.start});
 				var vIdx = 0;
 				vTxtMached = "";
@@ -502,7 +505,7 @@ var searchMgr = {
 				for (var j = 0; j<vHits.length;j++){
 					vHit = vHits[j];
 					vTxtMached += vTxtVal.substring(vIdx,vHit.start).replace(/</g, "&lt;");
-					vTxtMached += "<mark class='schHit' id='schId"+i+j+"'>"+vTxtVal.substring(vHit.start,vHit.end).replace(/</g, "&lt;")+"</mark>";
+					vTxtMached += "<span class='schHit' id='schId"+i+j+"'>"+vTxtVal.substring(vHit.start,vHit.end).replace(/</g, "&lt;")+"</span>";
 					vIdx = vHit.end;
 				}
 				vTxtMached += vTxtVal.substring(vHits[vHits.length-1].end).replace(/</g, "&lt;");
@@ -511,7 +514,7 @@ var searchMgr = {
 				vHolder.innerHTML = vTxtMached;
 			}
 		}
-		this.fTextHits = scPaLib.findNodes("des:mark.schHit",pRoot);
+		this.fTextHits = scPaLib.findNodes("des:span.schHit",pRoot);
 		var vDispTokens = [];
 		for (i = 0; i<vTokens.length;i++){
 			vToken = vTokens[i];
@@ -546,7 +549,11 @@ var searchMgr = {
 	/* === Utilities ============================================================ */
 
 	/** searchMgr.xAddBtn : Add a HTML button to a parent node. */
-	xAddBtn : tplMgr.addBtn,
+	xAddBtn : tplMgr.xAddBtn,
+
+	/** searchMgr.xSwitchClass - replace a class name. */
+	xSwitchClass : tplMgr.xSwitchClass,
+
 
 	loadSortKey: "ZZsearchMgr"
 }
@@ -607,7 +614,7 @@ searchMgr.ListResultManager.prototype = {
 				// Création du premier lien
 				vPageRes.fLbl = scDynUiMgr.addElement("li",vRoot,"schPgeBk mnu_sel_no schPgeRank_"+vResult.cat);
 				var vRankText = searchMgr.fStrings[16].replace("%s",vResult.cat);
-				var vPgeBtn = searchMgr.xAddBtn(vPageRes.fLbl,"schPgeBtn schPgeSource_"+vPageRes.source,vPageRes.title);
+				var vPgeBtn = searchMgr.xAddBtn(vPageRes.fLbl,"schPgeBtn schPgeSource_"+vPageRes.source,vPageRes.title,vRankText);
 				vPgeBtn.href = scServices.scLoad.getRootUrl() + "/" + vPageUrl;
 				scDynUiMgr.addElement("span",vPgeBtn,"schPgeRank").innerHTML = "<span>" + vRankText + "</span>";
 				// Affiche un fil d'ariane si doublons (si la variable urls existe)
@@ -633,6 +640,7 @@ searchMgr.ListResultManager.prototype = {
 				}
 			}
 		}
+		if (searchMgr.fScroller) searchMgr.fScroller.refresh();
 	},
 	/** ListResultManager.hasNextPage */
 	hasNextPage : function(pUrl){
@@ -669,14 +677,14 @@ searchMgr.ListResultManager.prototype = {
 			if(this.fPagesList[i].urls) {
 				for(var j = 0; j < this.fPagesList[i].urls.length; j++) {
 					if(pUrl == this.fPagesList[i].urls[j]) {
-						tplMgr.switchClass(this.fPagesList[i].fLbl, "mnu_sel_no", "mnu_sel_yes");
-						tplMgr.switchClass(this.fPagesList[i].fLiParentBk[j], "mnu_sel_no", "mnu_sel_yes");
+						searchMgr.xSwitchClass(this.fPagesList[i].fLbl, "mnu_sel_no", "mnu_sel_yes");
+						searchMgr.xSwitchClass(this.fPagesList[i].fLiParentBk[j], "mnu_sel_no", "mnu_sel_yes");
 					}
 				}
 			}
 		}
 		for(i in this.fDedupeResults) {
-			if(pUrl == this.fDedupeResults[i].url) tplMgr.switchClass(this.fPagesList[pUrl].fLbl, "mnu_sel_no", "mnu_sel_yes");
+			if(pUrl == this.fDedupeResults[i].url) searchMgr.xSwitchClass(this.fPagesList[pUrl].fLbl, "mnu_sel_no", "mnu_sel_yes");
 		}
 	},
 	/** ListResultManager.getResultCurrId */
@@ -703,6 +711,7 @@ searchMgr.ListResultManager.prototype = {
 				vUl.className = vUl.className.replace("schParentList_o", "schParentList_c");
 				vUl.fClosed = true;
 			}
+			if (searchMgr.fScroller) searchMgr.fScroller.refresh();
 		} catch(e){scCoLib.log("searchMgr.ListResultManager.toggleParentList : "+e);}
 		return false;
 	}
@@ -728,6 +737,7 @@ searchMgr.TreeResultManager.prototype = {
 			}
 			this.fMenu.applyFilter(this.fPageList.list);
 		}
+		if (searchMgr.fScroller) searchMgr.fScroller.refresh();
 	},
 
 	/** TreeResultManager.setupItem */
@@ -740,7 +750,7 @@ searchMgr.TreeResultManager.prototype = {
 		if (!vLbl.fClass) vLbl.fClass = vLbl.className;
 		if (!vLnk.fContent) vLnk.fContent = vLnk.innerHTML;
 		vLbl.className = vLbl.fClass + " schPgeBk schPgeRank_"+vCat;
-		//vLnk.title = vCatText;
+		vLnk.title = vCatText;
 		vLnk.innerHTML = vLnk.fContent+'<span class="schPgeRank"><span>'+vCatText+'</span></span>';
 	},
 
@@ -782,9 +792,10 @@ searchMgr.TreeResultManager.prototype = {
 /** searchMgr.MenuManager - Menu manager class. */
 searchMgr.MenuManager = function (pRoot, pOutline, pOpt) {
 	try{
-		this.fOpt = {target:"_self",addTitleAttributes:false,contextRoot:null,neverFilter:false,buildItemCallback:function(pItem){}};
+		this.fOpt = {target:"_self",addScroller:false,addTitleAttributes:false,contextRoot:null,neverFilter:false,buildItemCallback:function(pItem){}};
 		if (typeof pOpt != "undefined"){
 			if (typeof pOpt.target != "undefined") this.fOpt.target = pOpt.target;
+			if (typeof pOpt.addScroller != "undefined") this.fOpt.addScroller = pOpt.addScroller;
 			if (typeof pOpt.addTitleAttributes != "undefined") this.fOpt.addTitleAttributes = pOpt.addTitleAttributes;
 			if (typeof pOpt.contextRoot != "undefined") this.fOpt.contextRoot = pOpt.contextRoot;
 			if (typeof pOpt.neverFilter != "undefined") this.fOpt.neverFilter = pOpt.neverFilter;
@@ -838,11 +849,71 @@ searchMgr.MenuManager = function (pRoot, pOutline, pOpt) {
 		this.fFirstItem = vFirstItem;
 		this.fFirstFilteredItem = null;
 
+		if (this.fOpt.addScroller) this.buildMenuScroller();
 		if (this.fOpt.contextRoot) this.fContext = scDynUiMgr.addElement("span",this.fOpt.contextRoot,"ctx_root");
 
 	} catch(e){scCoLib.log("searchMgr.MenuManager init : "+e);}
 }
 searchMgr.MenuManager.prototype = {
+	/** MenuManager.buildMenuScroller - build a menu scroller infrastructre. */
+	buildMenuScroller : function() {
+		// Init Scroll
+		this.fRoot.fMgr = this;
+		this.fScrollerEnabled = true;
+		this.fRoot.style.overflow = searchMgr.fOverflowMethod;
+		var vFra = this.fRoot.parentNode;
+
+		// Init Scroll up button
+		this.fSrlUp = scDynUiMgr.addElement("div", vFra, "mnuSrlUpFra", this.fRoot);
+		this.fSrlUp.fMgr = this;
+		this.fSrlUp.onclick = function(){
+			this.fMgr.fSpeed -= 2;
+		}
+		this.fSrlUp.onmouseover = function(){
+			if(this.fMgr.fSpeed >= 0) {
+				this.fMgr.fSpeed = -2; 
+				scTiLib.addTaskNow(this.fMgr);
+			}
+		}
+		this.fSrlUp.onmouseout = function(){
+			this.fMgr.fSpeed = 0;
+		}
+		this.fSrlUpBtn = searchMgr.xAddBtn(this.fSrlUp, "mnuSrlUpBtn", searchMgr.fStrings[0], searchMgr.fStrings[1]);
+		this.fSrlUpBtn.fMgr = this;
+		this.fSrlUpBtn.onclick = function(){
+			this.fMgr.setScrollStep(-20); 
+			return false;
+		}
+		// Init Scroll down button
+		this.fSrlDwn = scDynUiMgr.addElement("div", vFra, "mnuSrlDwnFra");
+		this.fSrlDwn.fMgr = this;
+		this.fSrlDwn.onclick = function(){
+			this.fMgr.fSpeed += 2;
+		}
+		this.fSrlDwn.onmouseover = function(){
+			if(this.fMgr.fSpeed <= 0) {
+				this.fMgr.fSpeed = 2; 
+				scTiLib.addTaskNow(this.fMgr);
+			}
+		}
+		this.fSrlDwn.onmouseout = function(){
+			this.fMgr.fSpeed = 0;
+		}
+		this.fSrlDwnBtn = searchMgr.xAddBtn(this.fSrlDwn, "mnuSrlDwnBtn", searchMgr.fStrings[2], searchMgr.fStrings[3]);
+		this.fSrlDwnBtn.fMgr = this;
+		this.fSrlDwnBtn.onclick = function(){
+			this.fMgr.setScrollStep(20);
+			return false;
+		}
+		// Init scroll manager
+		this.checkScrollBtns();
+		this.ensureVisible();
+		scSiLib.addRule(this.fRoot, this);
+		this.fRoot.onscroll = function(){this.fMgr.checkScrollBtns()};
+		this.fRoot.onmousewheel = function(){this.fMgr.setScrollStep(Math.round(-event.wheelDelta/(scCoLib.isIE ? 60 : 40)))}; //IE, Safari, Chrome, Opera.
+		if(this.fRoot.addEventListener) this.fRoot.addEventListener('DOMMouseScroll', function(pEvent){this.fMgr.setScrollStep(pEvent.detail)}, false);
+
+	},
 	/** MenuManager.buildSubMenu - build the sub menu of a given root dom node. */
 	buildSubMenu : function (pRoot, pHidden) {
 		var i,vChi,vUl,vBtn,vTyp;
@@ -1057,14 +1128,14 @@ searchMgr.MenuManager.prototype = {
 			this.openAncestors(vFirstItems[i]);
 		}
 		if (vFirstItems.length>0) this.fFirstFilteredItem = vFirstItems[0];
-		tplMgr.switchClass(this.fRoot, "mnu_sch_no", "mnu_sch_yes");
+		searchMgr.xSwitchClass(this.fRoot, "mnu_sch_no", "mnu_sch_yes");
 	},
 	/** MenuManager.resetFilter - resert the current filter and rebuild the menu. */
 	resetFilter : function(pPageList) {
 		this.fFilter = false;
 		this.rebuildMenu();
 		this.fFirstFilteredItem = null;
-		tplMgr.switchClass(this.fRoot, "mnu_sch_yes", "mnu_sch_no");
+		searchMgr.xSwitchClass(this.fRoot, "mnu_sch_yes", "mnu_sch_no");
 		if (this.fCurrItem) this.loadPage(this.fCurrItem.url);
 	},
 	/** MenuManager.loadPage - set the given url as the 'active' page. */
@@ -1072,7 +1143,7 @@ searchMgr.MenuManager.prototype = {
 		var vItems;
 		if (this.fCurrItem) {
 			vItems = this.fItemIndex[this.fCurrItem.url];
-			for (var i=0; i<vItems.length; i++) if (vItems[i].fLbl) tplMgr.switchClass(vItems[i].fLbl, "mnu_sel_yes", "mnu_sel_no");
+			for (var i=0; i<vItems.length; i++) if (vItems[i].fLbl) searchMgr.xSwitchClass(vItems[i].fLbl, "mnu_sel_yes", "mnu_sel_no");
 		}
 		vItems = this.fItemIndex[pUri];
 		if (!vItems) {
@@ -1087,7 +1158,7 @@ searchMgr.MenuManager.prototype = {
 				if (!vItem.fLbl) this.buildAncestorMenus(vItem);
 				this.openAncestors(vItem);
 				if (vItem.fLbl.fTglBtn && scPaLib.checkNode(searchMgr.sFilterTgleClosed,vItem.fLbl.fTglBtn)) this.toggleMnuItem(vItem.fLbl.fTglBtn);
-				tplMgr.switchClass(vItem.fLbl, "mnu_sel_no", "mnu_sel_yes");
+				searchMgr.xSwitchClass(vItem.fLbl, "mnu_sel_no", "mnu_sel_yes");
 				vItemPresent = true;
 			}
 		}
@@ -1143,6 +1214,7 @@ searchMgr.MenuManager.prototype = {
 			for (var i=0; i < vOpendSubMnus.length; i++) this.toggleMnuItem(vOpendSubMnus[i].fTglBtn);
 		}
 		if (this.fOpt.addScroller) this.checkScrollBtns();
+		if (searchMgr.fScroller) searchMgr.fScroller.refresh();
 	},
 	/** MenuManager scroll timer & size task */
 	fClassOffUp : "btnOff",
