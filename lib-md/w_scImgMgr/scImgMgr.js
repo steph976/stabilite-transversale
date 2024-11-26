@@ -42,6 +42,7 @@ var scImgMgr = {
 	fPathGal : [],
 	fPathZoom : [],
 	fPathImg : [],
+	fPathSvg : [],
 	fAnims : null,
 	fGals : null,
 	fZooms : null,
@@ -114,6 +115,8 @@ scImgMgr.init = function() {
 		}
 		// Load images ...
 		this.xInitImgs(this.fSourceRoot);
+		// Mend svgs ...
+		this.xInitSvgs(this.fSourceRoot);
 		//Register listeners...
 		scDynUiMgr.collBlk.addOpenListener(this.sCollBlkOpen);
 		scDynUiMgr.collBlk.addCloseListener(this.sCollBlkClose);
@@ -203,6 +206,15 @@ scImgMgr.registerAdaptedImage = function(pPathImage) {
 	var vImg = new Object;
 	vImg.fPath = pPathImage;
 	this.fPathImg[this.fPathImg.length] = vImg;
+}
+
+/** scImgMgr.registerSvg.
+ * @param pPathSvg scPaLib path vers les svgs.
+ */
+scImgMgr.registerSvg = function(pPathSvg) {
+	var vSvg = new Object;
+	vSvg.fPath = pPathSvg;
+	this.fPathSvg[this.fPathSvg.length] = vSvg;
 }
 
 /** register a listener. */
@@ -376,6 +388,16 @@ scImgMgr.xInitImg = function(pImg) {
 /*	if (pImg.width>this.fMaxDeviceWidth){
 		pImg.fIsAdapted = true;
 	}*/
+}
+/* === SVG manager ========================================================== */
+scImgMgr.xInitSvgs = function(pCo) {
+	for(var i=0; i<this.fPathSvg.length; i++) {
+		var vSvgs = scPaLib.findNodes(this.fPathSvg[i].fPath, pCo);
+		for(var j=0; j<vSvgs.length; j++) this.xInitSvg(vSvgs[j]);
+	}
+}
+scImgMgr.xInitSvg = function(pSvg) {
+	if (!pSvg.getAttribute("viewBox")) pSvg.setAttribute("viewBox", "0 0 " + pSvg.width.baseVal.value + " " + pSvg.height.baseVal.value);
 }
 /* === Animation manager ==================================================== */
 scImgMgr.xInitAnims = function(pCo) {
